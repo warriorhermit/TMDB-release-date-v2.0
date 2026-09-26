@@ -10,6 +10,15 @@ const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 21600000);
 const cache = new Map();
 const activeRequests = new Map();
 
+// Enable CORS for Nuvio & Stremio web/app clients
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 function headers() {
   return TMDB_API_TOKEN
     ? { Authorization: `Bearer ${TMDB_API_TOKEN}`, accept: "application/json" }
@@ -33,7 +42,6 @@ async function tmdbGet(path) {
 
 function parseDate(value) {
   if (!value) return null;
-  // TMDB may return YYYY-MM-DD or an ISO timestamp. We only want the calendar date.
   const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return null;
   const [, y, m, d] = match;
@@ -71,25 +79,34 @@ function chooseRelease(countries, type) {
   return candidates[0] || null;
 }
 
-async function findMovie(imdbId) {
+async function findMovieByImdb(imdbId) {
   const find = await tmdbGet(`/find/${encodeURIComponent(imdbId)}?external_source=imdb_id`);
   let movie = (find.movie_results || [])[0];
   if (movie?.id) return movie;
-
-  // Fallback: TMDB's movie search using the known IMDb title is not possible without
-  // knowing the title, so return a clear error rather than guessing a wrong movie.
   throw new Error(`TMDB could not map IMDb ID ${imdbId} to a movie`);
 }
 
-async function getInfo(imdbId) {
-  const cached = cache.get(imdbId);
+async function resolveMovie(rawId) {
+  if (rawId.startsWith("tmdb:")) {
+    const tmdbId = rawId.replace("tmdb:", "");
+    return await tmdbGet(`/movie/${tmdbId}`);
+  }
+  if (/^\d+$/.test(rawId)) {
+    return await tmdbGet(`/movie/${rawId}`);
+  }
+  if (/^tt\d+$/i.test(rawId)) {
+    return await findMovieByImdb(rawId);
+  }
+  throw new Error(`Unsupported ID format: ${rawId}`);
+}
+
+async function getInfo(rawId) {
+  const cached = cache.get(rawId);
   if (cached && cached.expires > Date.now()) return cached.value;
-  if (activeRequests.has(imdbId)) return activeRequests.get(imdbId);
+  if (activeRequests.has(rawId)) return activeRequests.get(rawId);
 
   const promise = (async () => {
-    if (!/^tt\d+$/i.test(imdbId)) throw new Error("Invalid IMDb movie ID");
-
-    const movie = await findMovie(imdbId);
+    const movie = await resolveMovie(rawId);
     const releases = await tmdbGet(`/movie/${movie.id}/release_dates`);
 
     const countries = releases.results || [];
@@ -97,21 +114,20 @@ async function getInfo(imdbId) {
     const digital = chooseRelease(countries, 4);
 
     const value = {
-      imdbId,
+      rawId,
       tmdbId: movie.id,
-      title: movie.title || movie.original_title || imdbId,
-      posterPath: movie.poster_path || null,
+      title: movie.title || movie.original_title || rawId,
       theatrical,
       digital
     };
 
-    cache.set(imdbId, { value, expires: Date.now() + CACHE_TTL_MS });
+    cache.set(rawId, { value, expires: Date.now() + CACHE_TTL_MS });
     return value;
   })();
 
-  activeRequests.set(imdbId, promise);
+  activeRequests.set(rawId, promise);
   try { return await promise; }
-  finally { activeRequests.delete(imdbId); }
+  finally { activeRequests.delete(rawId); }
 }
 
 function stream(info) {
@@ -126,44 +142,49 @@ function stream(info) {
   return {
     name: "TMDB Release Dates",
     title: `🎬 Theatrical: ${theatrical}\n💻 Digital: ${digital}`,
-    description: `TMDB release dates • ${info.title}`,
-    url: `https://www.themoviedb.org/movie/${info.tmdbId}`,
+    description: `TMDB • ${info.title}`,
     externalUrl: `https://www.themoviedb.org/movie/${info.tmdbId}`,
     behaviorHints: { bingeGroup: "tmdb-release-dates" }
   };
 }
 
 app.get("/", (_req, res) => res.type("html").send(
-  "<h1>TMDB Release Dates Addon v3.1</h1><p>Service is online.</p><p><a href='/manifest.json'>Manifest</a> · <a href='/health'>Health</a></p>"
+  "<h1>TMDB Release Dates Addon v3.2</h1><p>Service is online.</p><p><a href='/manifest.json'>Manifest</a> · <a href='/health'>Health</a></p>"
 ));
 
 app.get("/health", (_req, res) => res.json({
   status: "ok",
-  version: "3.1.0",
+  version: "3.2.0",
   tmdbConfigured: Boolean(TMDB_API_TOKEN || TMDB_API_KEY),
   defaultRegion: DEFAULT_REGION
 }));
 
 app.get("/manifest.json", (_req, res) => res.json({
   id: "com.nuvio.tmdb.release-dates.stream",
-  version: "3.1.0",
+  version: "3.2.0",
   name: "TMDB Release Dates",
-  description: "Shows TMDB theatrical and digital release dates in the Nuvio/Stremio Play/Streams section.",
-  resources: [{ name: "stream", types: ["movie"], idPrefixes: ["tt"] }],
+  description: "Shows TMDB theatrical and digital release dates in Nuvio/Stremio.",
+  resources: [{ name: "stream", types: ["movie"], idPrefixes: ["tt", "tmdb:"] }],
   types: ["movie"],
-  idPrefixes: ["tt"],
+  idPrefixes: ["tt", "tmdb:"],
   catalogs: []
 }));
 
 async function handleStream(req, res) {
   if (req.params.type !== "movie") return res.json({ streams: [] });
-  const imdbId = String(req.params.id).split(":")[0];
+
+  let rawId = String(req.params.id);
+  if (rawId.startsWith("tmdb:")) {
+    rawId = "tmdb:" + rawId.slice(5).split(":")[0];
+  } else {
+    rawId = rawId.split(":")[0];
+  }
 
   try {
-    const info = await getInfo(imdbId);
+    const info = await getInfo(rawId);
     return res.json({ streams: [stream(info)] });
   } catch (e) {
-    console.error(`[${imdbId}] ${e.message}`);
+    console.error(`[${rawId}] ${e.message}`);
     return res.json({
       streams: [{
         name: "TMDB Release Dates",
@@ -179,4 +200,4 @@ app.get("/stream/:type/:id.json", handleStream);
 app.get("/:config/stream/:type/:id.json", handleStream);
 app.get("/:style/:apiKey/stream/:type/:id.json", handleStream);
 
-app.listen(PORT, () => console.log(`TMDB Release Dates v3.1 listening on ${PORT}`));
+app.listen(PORT, () => console.log(`TMDB Release Dates listening on ${PORT}`));
