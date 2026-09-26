@@ -10,7 +10,7 @@ const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 21600000);
 const cache = new Map();
 const activeRequests = new Map();
 
-// Enable CORS for Nuvio & Stremio web/app clients
+// Global CORS Middleware
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "*");
@@ -130,7 +130,7 @@ async function getInfo(rawId) {
   finally { activeRequests.delete(rawId); }
 }
 
-function stream(info) {
+function stream(info, req) {
   const theatrical = info.theatrical
     ? `${parseDate(info.theatrical.release_date)} (${info.theatrical.region})`
     : "Not announced";
@@ -139,32 +139,55 @@ function stream(info) {
     ? `${parseDate(info.digital.release_date)} (${info.digital.region})`
     : "Not announced";
 
-  return {
-    name: "TMDB Release Dates",
-    title: `🎬 Theatrical: ${theatrical}\n💻 Digital: ${digital}`,
-    description: `TMDB • ${info.title}`,
-    externalUrl: `https://www.themoviedb.org/movie/${info.tmdbId}`,
-    behaviorHints: { bingeGroup: "tmdb-release-dates" }
-  };
+  const host = req.get("host") || "localhost";
+  const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
+  const dummyVideoUrl = `${protocol}://${host}/dummy.mp4`;
+
+  return [
+    {
+      name: `🎬 Theat: ${theatrical}`,
+      title: `${info.title}\nTheatrical: ${theatrical}\nDigital: ${digital}`,
+      description: `Theatrical: ${theatrical} | Digital: ${digital}`,
+      url: dummyVideoUrl,
+      externalUrl: `https://www.themoviedb.org/movie/${info.tmdbId}`,
+      behaviorHints: { bingeGroup: "tmdb-release-theat" }
+    },
+    {
+      name: `💻 Digital: ${digital}`,
+      title: `${info.title}\nDigital: ${digital}\nTheatrical: ${theatrical}`,
+      description: `Digital: ${digital} | Theatrical: ${theatrical}`,
+      url: dummyVideoUrl,
+      externalUrl: `https://www.themoviedb.org/movie/${info.tmdbId}`,
+      behaviorHints: { bingeGroup: "tmdb-release-digital" }
+    }
+  ];
 }
 
+// Dummy endpoint to satisfy Nuvio stream checking
+app.get("/dummy.mp4", (_req, res) => {
+  res.type("video/mp4").status(204).end();
+});
+
 app.get("/", (_req, res) => res.type("html").send(
-  "<h1>TMDB Release Dates Addon v3.2</h1><p>Service is online.</p><p><a href='/manifest.json'>Manifest</a> · <a href='/health'>Health</a></p>"
+  "<h1>TMDB Release Dates Addon v3.3</h1><p>Service is online.</p><p><a href='/manifest.json'>Manifest</a> · <a href='/health'>Health</a></p>"
 ));
 
 app.get("/health", (_req, res) => res.json({
   status: "ok",
-  version: "3.2.0",
+  version: "3.3.0",
   tmdbConfigured: Boolean(TMDB_API_TOKEN || TMDB_API_KEY),
   defaultRegion: DEFAULT_REGION
 }));
 
 app.get("/manifest.json", (_req, res) => res.json({
   id: "com.nuvio.tmdb.release-dates.stream",
-  version: "3.2.0",
+  version: "3.3.0",
   name: "TMDB Release Dates",
   description: "Shows TMDB theatrical and digital release dates in Nuvio/Stremio.",
-  resources: [{ name: "stream", types: ["movie"], idPrefixes: ["tt", "tmdb:"] }],
+  resources: [
+    "stream",
+    { name: "stream", types: ["movie"], idPrefixes: ["tt", "tmdb:"] }
+  ],
   types: ["movie"],
   idPrefixes: ["tt", "tmdb:"],
   catalogs: []
@@ -182,14 +205,17 @@ async function handleStream(req, res) {
 
   try {
     const info = await getInfo(rawId);
-    return res.json({ streams: [stream(info)] });
+    return res.json({ streams: stream(info, req) });
   } catch (e) {
     console.error(`[${rawId}] ${e.message}`);
+    const host = req.get("host") || "localhost";
+    const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
     return res.json({
       streams: [{
-        name: "TMDB Release Dates",
-        title: "⚠️ Release information unavailable",
+        name: "⚠️ TMDB Release Info",
+        title: `Error: ${e.message}`,
         description: e.message,
+        url: `${protocol}://${host}/dummy.mp4`,
         externalUrl: "https://www.themoviedb.org/"
       }]
     });
