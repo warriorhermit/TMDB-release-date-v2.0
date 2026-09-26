@@ -58,7 +58,6 @@ function isoDate(value) {
 }
 
 function chooseRelease(countries, type) {
-  // Region hierarchy prioritized for US first, then GB, then IN
   const preferred = [...new Set([DEFAULT_REGION, "US", "GB", "IN"])];
   for (const region of preferred) {
     const country = countries.find(c => c.iso_3166_1 === region);
@@ -146,20 +145,12 @@ function stream(info, req) {
 
   return [
     {
-      name: `🎬 Theat: ${theatrical}`,
-      title: `${info.title}\nTheatrical: ${theatrical}\nDigital: ${digital}`,
-      description: `Theatrical: ${theatrical} | Digital: ${digital}`,
+      name: `TMDB Releases`,
+      title: `🎬 Theatrical: ${theatrical}\n💻 Digital: ${digital}`,
+      description: `🎬 Theatrical: ${theatrical} | 💻 Digital: ${digital}`,
       url: dummyVideoUrl,
       externalUrl: `https://www.themoviedb.org/movie/${info.tmdbId}`,
-      behaviorHints: { bingeGroup: "tmdb-release-theat" }
-    },
-    {
-      name: `💻 Digital: ${digital}`,
-      title: `${info.title}\nDigital: ${digital}\nTheatrical: ${theatrical}`,
-      description: `Digital: ${digital} | Theatrical: ${theatrical}`,
-      url: dummyVideoUrl,
-      externalUrl: `https://www.themoviedb.org/movie/${info.tmdbId}`,
-      behaviorHints: { bingeGroup: "tmdb-release-digital" }
+      behaviorHints: { bingeGroup: "tmdb-release-dates" }
     }
   ];
 }
