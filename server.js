@@ -4,7 +4,7 @@ const app = express();
 const PORT = process.env.PORT || 7000;
 const TMDB_API_TOKEN = process.env.TMDB_API_TOKEN || "";
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "";
-const DEFAULT_REGION = (process.env.DEFAULT_REGION || "IN").toUpperCase();
+const DEFAULT_REGION = (process.env.DEFAULT_REGION || "US").toUpperCase();
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 21600000);
 
 const cache = new Map();
@@ -47,7 +47,7 @@ function parseDate(value) {
   const [, y, m, d] = match;
   const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
   if (Number.isNaN(dt.getTime())) return null;
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat("en-US", {
     day: "2-digit", month: "short", year: "numeric", timeZone: "UTC"
   }).format(dt);
 }
@@ -58,7 +58,8 @@ function isoDate(value) {
 }
 
 function chooseRelease(countries, type) {
-  const preferred = [...new Set([DEFAULT_REGION, "US", "GB"])];
+  // Region hierarchy prioritized for US first, then GB, then IN
+  const preferred = [...new Set([DEFAULT_REGION, "US", "GB", "IN"])];
   for (const region of preferred) {
     const country = countries.find(c => c.iso_3166_1 === region);
     const release = (country?.release_dates || [])
