@@ -1,0 +1,16 @@
+{
+  "name": "nuvio-tmdb-release-stream-addon",
+  "version": "3.1.0",
+  "description": "Nuvio/Stremio stream addon for TMDB theatrical and digital release dates.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
