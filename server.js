@@ -145,12 +145,12 @@ function stream(info, req) {
 
   return [
     {
-      name: `TMDB Releases`,
+      name: `Release Details`,
       title: `🎬 Theatrical: ${theatrical}\n💻 Digital: ${digital}`,
       description: `🎬 Theatrical: ${theatrical} | 💻 Digital: ${digital}`,
       url: dummyVideoUrl,
       externalUrl: `https://www.themoviedb.org/movie/${info.tmdbId}`,
-      behaviorHints: { bingeGroup: "tmdb-release-dates" }
+      behaviorHints: { bingeGroup: "release-details" }
     }
   ];
 }
@@ -161,7 +161,7 @@ app.get("/dummy.mp4", (_req, res) => {
 });
 
 app.get("/", (_req, res) => res.type("html").send(
-  "<h1>TMDB Release Dates Addon v3.3</h1><p>Service is online.</p><p><a href='/manifest.json'>Manifest</a> · <a href='/health'>Health</a></p>"
+  "<h1>Release Details Addon v3.3</h1><p>Service is online.</p><p><a href='/manifest.json'>Manifest</a> · <a href='/health'>Health</a></p>"
 ));
 
 app.get("/health", (_req, res) => res.json({
@@ -172,10 +172,10 @@ app.get("/health", (_req, res) => res.json({
 }));
 
 app.get("/manifest.json", (_req, res) => res.json({
-  id: "com.nuvio.tmdb.release-dates.stream",
+  id: "com.nuvio.release-details.stream",
   version: "3.3.0",
-  name: "TMDB Release Dates",
-  description: "Shows TMDB theatrical and digital release dates in Nuvio/Stremio.",
+  name: "Release Details",
+  description: "Shows theatrical and digital release dates in Nuvio/Stremio.",
   resources: [
     "stream",
     { name: "stream", types: ["movie"], idPrefixes: ["tt", "tmdb:"] }
@@ -204,7 +204,7 @@ async function handleStream(req, res) {
     const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
     return res.json({
       streams: [{
-        name: "⚠️ TMDB Release Info",
+        name: "⚠️ Release Details",
         title: `Error: ${e.message}`,
         description: e.message,
         url: `${protocol}://${host}/dummy.mp4`,
@@ -218,4 +218,4 @@ app.get("/stream/:type/:id.json", handleStream);
 app.get("/:config/stream/:type/:id.json", handleStream);
 app.get("/:style/:apiKey/stream/:type/:id.json", handleStream);
 
-app.listen(PORT, () => console.log(`TMDB Release Dates listening on ${PORT}`));
+app.listen(PORT, () => console.log(`Release Details addon listening on ${PORT}`));
